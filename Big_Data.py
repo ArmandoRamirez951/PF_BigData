@@ -1,151 +1,198 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Piedra, Papel o Tijera AI</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+    <style>
+        body { font-family: 'Arial', sans-serif; text-align: center; background-color: #f0f0f0; }
+        h1 { color: #333; }
+        #game-container { position: relative; display: inline-block; margin-top: 20px; }
+        video { border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.2); transform: scaleX(-1); } /* Efecto espejo */
+        #status { margin: 15px; font-size: 1.2em; font-weight: bold; color: #555; }
+        button {
+            padding: 15px 30px; font-size: 18px; cursor: pointer;
+            background-color: #007bff; color: white; border: none; border-radius: 5px; margin: 10px;
+        }
+        button:disabled { background-color: #ccc; cursor: not-allowed; }
+        #result-area { margin-top: 20px; font-size: 1.5em; padding: 20px; background: white; border-radius: 10px; display: none; }
+        .win { color: green; }
+        .lose { color: red; }
+        .draw { color: orange; }
+    </style>
+</head>
+<body>
 
-import tensorflow as tf
-import numpy as np
-import cv2
-import random
-import time
-import tkinter as tk
-from tkinter import simpledialog, messagebox
-from collections import Counter
+    <h1>🎮 Piedra, Papel o Tijera IA</h1>
+    
+    <div id="game-container">
+        <video id="webcam" width="448" height="448" autoplay playsinline></video>
+    </div>
 
-modelo_path = "C:/Users/luisa/Downloads/converted_savedmodel/model.savedmodel"
-labels_path = "C:/Users/luisa/Downloads/converted_savedmodel/labels.txt"
+    <div id="status">Cargando modelo...</div>
 
-model = tf.saved_model.load(modelo_path)
-print("✅ Modelo cargado correctamente (SavedModel).")
+    <div>
+        <button id="btn-play" onclick="jugarRonda()" disabled>🖐 Iniciar Ronda</button>
+        <button id="btn-score" onclick="verPuntaje()">🏆 Ver Puntaje</button>
+    </div>
 
-with open(labels_path, "r") as f:
-    labels = [line.strip().split(' ', 1)[1] for line in f.readlines()]
+    <div id="result-area">
+        <p id="prediction-text">Tú: ...</p>
+        <p id="cpu-text">CPU: ...</p>
+        <h2 id="final-result">RESULTADO</h2>
+    </div>
 
-# Filtrar etiquetas válidas
-labels_validas = [l for l in labels if l not in ["Fondo", "Nada"]]
-if not labels_validas:
-    raise ValueError("❌ No se encontraron etiquetas válidas. Revisa tu archivo labels.txt")
-print("✅ Etiquetas válidas:", labels_validas)
+    <script>
+        // ---------------- CONFIGURACIÓN ----------------
+        // Asegúrate de poner aquí las mismas etiquetas que tienes en labels.txt
+        const LABELS = ["Piedra", "Papel", "Tijera", "Fondo", "Nada"]; 
+        const LABELS_VALIDAS = ["Piedra", "Papel", "Tijera"];
+        const MODEL_URL = './modelo_web/model.json'; // Ruta relativa a tu archivo convertido
 
-infer = model.signatures["serving_default"]
+        let model = null;
+        let webcamElement = document.getElementById('webcam');
+        let puntaje = { ganadas: 0, perdidas: 0 };
+        let isPlaying = false;
 
-# ==========================================
-# 3️⃣ FUNCIONES DE APOYO
-# ==========================================
-def preprocess_image(img):
-    """Redimensiona y normaliza la imagen para el modelo"""
-    img_resized = cv2.resize(img, (224, 224))
-    img_array = np.expand_dims(img_resized.astype(np.float32), axis=0)
-    img_array = (img_array / 127.5) - 1.0
-    return img_array
+        // ---------------- CARGAR MODELO Y CÁMARA ----------------
+        async function init() {
+            try {
+                // Cargar modelo
+                console.log("Cargando modelo...");
+                // Nota: Usamos loadGraphModel porque convertimos un SavedModel
+                model = await tf.loadGraphModel(MODEL_URL); 
+                console.log("Modelo cargado.");
 
-def obtener_resultado(jugador, computadora):
-    """Determina el resultado del juego"""
-    if jugador == computadora:
-        return "Empate"
-    elif (jugador == "Piedra" and computadora == "Tijera") or \
-         (jugador == "Papel" and computadora == "Piedra") or \
-         (jugador == "Tijera" and computadora == "Papel"):
-        return "Ganaste"
-    else:
-        return "Perdiste"
+                // Configurar cámara
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                webcamElement.srcObject = stream;
+                
+                await new Promise(resolve => webcamElement.onloadedmetadata = resolve);
+                document.getElementById('status').innerText = "Modelo listo. ¡Presiona Iniciar!";
+                document.getElementById('btn-play').disabled = false;
+            } catch (error) {
+                console.error(error);
+                document.getElementById('status').innerText = "Error: " + error.message;
+                alert("Asegúrate de ejecutar esto en un servidor local (http://localhost), no abriendo el archivo directamente.");
+            }
+        }
 
-# ==========================================
-# 4️⃣ FUNCION PRINCIPAL DEL JUEGO (SIN CAMARA VISIBLE)
-# ==========================================
-def iniciar_juego(puntaje):
-    cap = cv2.VideoCapture(0)
-    UMBRAL = 0.5  # bajamos el umbral para no perder gestos
-    jugando = True
+        // ---------------- LÓGICA DEL JUEGO ----------------
+        async function jugarRonda() {
+            if (isPlaying) return;
+            isPlaying = true;
+            document.getElementById('btn-play').disabled = true;
+            document.getElementById('result-area').style.display = 'none';
+            
+            let conteoPredicciones = [];
+            let tiempoRestante = 3; // Segundos de "escaneo" (reducido de 5 a 3 para web)
 
-    while jugando:
-        jugador = "Nada"
+            document.getElementById('status').innerText = "¡Prepara tu mano! Escaneando...";
 
-        # Mensaje de inicio de ronda
-        messagebox.showinfo("Nueva Ronda", "Cuando cierres este mensaje, se comenzará a detectar tu jugada.")
+            // Intervalo para capturar predicciones durante X segundos
+            let intervalo = setInterval(async () => {
+                const prediccion = await predecirImagen();
+                if (LABELS_VALIDAS.includes(prediccion)) {
+                    conteoPredicciones.push(prediccion);
+                }
+            }, 100); // Predecir cada 100ms
 
-        predicciones_temp = []
+            // Finalizar ronda después del tiempo
+            setTimeout(() => {
+                clearInterval(intervalo);
+                finalizarRonda(conteoPredicciones);
+            }, tiempoRestante * 1000);
+        }
 
-        # Tomamos varias capturas mientras presionas la mano
-        start_time = time.time()
-        while time.time() - start_time < 5:
-            ret, frame = cap.read()
-            if not ret:
-                messagebox.showerror("Error", "No se pudo acceder a la cámara.")
-                jugando = False
-                break
+        async function predecirImagen() {
+            if (!model) return "Nada";
 
-            roi = frame[100:400, 100:400]
-            img_array = preprocess_image(roi)
-            input_tensor = tf.convert_to_tensor(img_array, dtype=tf.float32)
-            output = infer(tf.constant(input_tensor))
-            predicciones = list(output.values())[0].numpy()[0]
+            // tf.tidy limpia la memoria de tensores intermedios automáticamente
+            return tf.tidy(() => {
+                // 1. Convertir imagen de webcam a tensor
+                let img = tf.browser.fromPixels(webcamElement);
+                
+                // 2. Preprocesamiento (igual que en tu Python: resize 224, normalizar -1 a 1)
+                img = tf.image.resizeBilinear(img, [224, 224]); // Resize
+                img = img.expandDims(0); // Añadir batch dimension
+                img = img.toFloat().div(127.5).sub(1.0); // Normalización
 
-            # Mostrar probabilidades de todas las clases
-            prob_dict = dict(zip(labels, predicciones))
-            print(f"Probabilidades: {prob_dict}")
+                // 3. Predicción
+                const output = model.predict(img); // Puede devolver un objeto o tensor
+                
+                // Manejar si el output es un objeto (común en GraphModel) o un tensor directo
+                const predictions = output.arraySync ? output.arraySync()[0] : output['Identity'].arraySync()[0]; 
 
-            index = np.argmax(predicciones)
-            prob = np.max(predicciones)
-            clase = labels[index]
+                // 4. Encontrar el índice más alto
+                let maxIndex = predictions.indexOf(Math.max(...predictions));
+                return LABELS[maxIndex];
+            });
+        }
 
-            if clase in labels_validas and prob >= UMBRAL:
-                predicciones_temp.append(clase)
+        function finalizarRonda(listaPredicciones) {
+            isPlaying = false;
+            document.getElementById('btn-play').disabled = false;
 
-            if cv2.waitKey(1) & 0xFF == 32:  # barra espaciadora para salir
-                jugando = False
-                break
+            // Encontrar el elemento más común (Moda)
+            if (listaPredicciones.length === 0) {
+                document.getElementById('status').innerText = "No detecté nada válido. Intenta de nuevo.";
+                return;
+            }
 
-        if not jugando:
-            break
+            // Lógica similar a Counter(list).most_common(1)
+            const count = {};
+            listaPredicciones.forEach(item => count[item] = (count[item] || 0) + 1);
+            const jugador = Object.keys(count).reduce((a, b) => count[a] > count[b] ? a : b);
 
-        if predicciones_temp:
-            jugador = Counter(predicciones_temp).most_common(1)[0][0]
-        else:
-            messagebox.showinfo("Aviso", "No se detectó un gesto válido. Intenta de nuevo.")
-            continue
+            // Turno CPU
+            const computadora = LABELS_VALIDAS[Math.floor(Math.random() * LABELS_VALIDAS.length)];
+            
+            // Calcular ganador
+            const resultado = obtenerResultado(jugador, computadora);
 
-        # Elección de la computadora (solo entre etiquetas válidas)
-        computadora = random.choice(labels_validas)
-        resultado = obtener_resultado(jugador, computadora)
+            // Mostrar resultados
+            mostrarResultadoUI(jugador, computadora, resultado);
+        }
 
-        mensaje = f"Tú: {jugador}\nCPU: {computadora}\nResultado: {resultado}"
-        messagebox.showinfo("Resultado", mensaje)
+        function obtenerResultado(jugador, computadora) {
+            if (jugador === computadora) return "Empate";
+            if ((jugador === "Piedra" && computadora === "Tijera") ||
+                (jugador === "Papel" && computadora === "Piedra") ||
+                (jugador === "Tijera" && computadora === "Papel")) {
+                puntaje.ganadas++;
+                return "Ganaste";
+            } else {
+                puntaje.perdidas++;
+                return "Perdiste";
+            }
+        }
 
-        if resultado == "Ganaste":
-            puntaje["ganadas"] += 1
-        elif resultado == "Perdiste":
-            puntaje["perdidas"] += 1
+        function mostrarResultadoUI(jugador, cpu, resultado) {
+            const resArea = document.getElementById('result-area');
+            const finalRes = document.getElementById('final-result');
+            
+            resArea.style.display = 'block';
+            document.getElementById('prediction-text').innerText = `Tú elegiste: ${jugador}`;
+            document.getElementById('cpu-text').innerText = `CPU eligió: ${cpu}`;
+            
+            finalRes.innerText = resultado.toUpperCase();
+            finalRes.className = ""; // Reset class
+            
+            if (resultado === "Ganaste") finalRes.classList.add("win");
+            else if (resultado === "Perdiste") finalRes.classList.add("lose");
+            else finalRes.classList.add("draw");
 
-        salir = messagebox.askyesno("Continuar", "¿Deseas jugar otra ronda? (No = volver al menú)")
-        if not salir:
-            jugando = False
+            document.getElementById('status').innerText = "Ronda terminada.";
+        }
 
-    cap.release()
-    cv2.destroyAllWindows()
-    return puntaje
+        function verPuntaje() {
+            alert(`Partidas ganadas: ${puntaje.ganadas}\nPartidas perdidas: ${puntaje.perdidas}`);
+        }
 
-# ==========================================
-# 5️⃣ FUNCIÓN MENÚ CON MESSAGEBOX
-# ==========================================
-def mostrar_menu():
-    puntaje = {"ganadas": 0, "perdidas": 0}
-    root = tk.Tk()
-    root.withdraw()
+        // Iniciar al cargar la página
+        init();
 
-    while True:
-        opcion = simpledialog.askstring("Menú Piedra, Papel o Tijera",
-                                        "Selecciona una opción:\n1️⃣ Iniciar juego\n2️⃣ Ver puntaje\n3️⃣ Salir")
-        if opcion == "1":
-            puntaje = iniciar_juego(puntaje)
-        elif opcion == "2":
-            messagebox.showinfo("Puntaje",
-                                f"Partidas ganadas: {puntaje['ganadas']}\nPartidas perdidas: {puntaje['perdidas']}")
-        elif opcion == "3":
-            messagebox.showinfo("Salir", "¡Gracias por jugar!")
-            break
-        else:
-            messagebox.showwarning("Error", "Opción no válida. Intenta nuevamente.")
-
-# ==========================================
-# 6️⃣ INICIO DEL PROGRAMA
-# ==========================================
-if __name__ == "__main__":
-    mostrar_menu()
-
+    </script>
+</body>
+</html>
