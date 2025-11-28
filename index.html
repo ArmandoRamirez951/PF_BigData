@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Proyecto Final Big Data - Grupo 961</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+
+    <style>
+        /* --- ESTILOS GENERALES --- */
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            margin: 0;
+            padding: 0;
+            color: #333;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            /* Fondo degradado base */
+            background: linear-gradient(to left, #8f94fb, #4e54c8); 
+            overflow-x: hidden; 
+        }
+
+        /* DOCUMENTACIÓN: FONDO ANIMADO 
+           Creamos una lista de cuadrados (li) que flotan desde abajo hacia arriba.
+           Usamos 'position: absolute' y 'animation' para moverlos infinitamente.
+        */
+        .area {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1; /* Se coloca detrás de todo el contenido */
+        }
+
+        .circles {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            margin: 0;
+            padding: 0;
+        }
+
+        .circles li {
+            position: absolute;
+            display: block;
+            list-style: none;
+            width: 20px;
+            height: 20px;
+            background: rgba(255, 255, 255, 0.2); /* Transparencia */
+            animation: animate 25s linear infinite;
+            bottom: -150px; /* Empiezan debajo de la pantalla */
+            border-radius: 20%; 
+        }
+
+        /* Configuración individual de cada partícula flotante */
+        .circles li:nth-child(1) { left: 25%; width: 80px; height: 80px; animation-delay: 0s; }
+        .circles li:nth-child(2) { left: 10%; width: 20px; height: 20px; animation-delay: 2s; animation-duration: 12s; }
+        .circles li:nth-child(3) { left: 70%; width: 20px; height: 20px; animation-delay: 4s; }
+        .circles li:nth-child(4) { left: 40%; width: 60px; height: 60px; animation-delay: 0s; animation-duration: 18s; }
+        .circles li:nth-child(5) { left: 65%; width: 20px; height: 20px; animation-delay: 0s; }
+        .circles li:nth-child(6) { left: 75%; width: 110px; height: 110px; animation-delay: 3s; }
+        .circles li:nth-child(7) { left: 35%; width: 150px; height: 150px; animation-delay: 7s; }
+        .circles li:nth-child(8) { left: 50%; width: 25px; height: 25px; animation-delay: 15s; animation-duration: 45s; }
+        .circles li:nth-child(9) { left: 20%; width: 15px; height: 15px; animation-delay: 2s; animation-duration: 35s; }
+        .circles li:nth-child(10) { left: 85%; width: 150px; height: 150px; animation-delay: 0s; animation-duration: 11s; }
+
+        @keyframes animate {
+            0% { transform: translateY(0) rotate(0deg); opacity: 1; border-radius: 0; }
+            100% { transform: translateY(-1000px) rotate(720deg); opacity: 0; border-radius: 50%; }
+        }
+
+        /* --- CABECERA --- */
+        .main-header {
+            background-color: rgba(0, 0, 0, 0.6); 
+            color: white;
+            padding: 15px;
+            text-align: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            backdrop-filter: blur(5px); /* Efecto borroso detrás */
+        }
+
+        /* --- LAYOUT PRINCIPAL (FLEXBOX) --- */
+        .main-container {
+            display: flex;
+            flex: 1;
+            padding: 20px;
+            gap: 20px;
+            justify-content: center;
+            align-items: flex-start;
+            flex-wrap: wrap; /* Permite que se acomode en celulares */
+        }
+
+        /* DOCUMENTACIÓN: GLASSMORPHISM
+           La clase .panel da el efecto de vidrio esmerilado.
+           Usa un fondo blanco semitransparente (0.92) y backdrop-filter.
+        */
+        .panel {
+            background: rgba(255, 255, 255, 0.92); 
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+        }
+
+        /* Panel Izquierdo */
+        .info-panel {
+            flex: 1;
+            min-width: 280px;
+            text-align: center;
+            border-top: 5px solid #007bff;
+        }
+
+        .info-panel h2 { color: #007bff; margin-bottom: 5px; font-size: 1.8rem;}
+        .info-panel h3 { color: #444; margin: 5px 0; font-weight: normal; font-size: 1.2rem; }
+        .info-panel .label { font-weight: bold; color: #777; font-size: 0.9rem; text-transform: uppercase; margin-top: 15px; display: block;}
+
+        /* Panel Central (Juego) */
+        .game-panel {
+            flex: 2;
+            min-width: 320px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: transparent; 
+            box-shadow: none; 
+            border: none;
+        }
+
+        #game-container {
+            position: relative;
+            border: 8px solid #333;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            background: #000;
+            width: 450px;
+            height: 450px;
+        }
+        
+        /* DOCUMENTACIÓN: EFECTO ESPEJO
+           transform: scaleX(-1) voltea el video horizontalmente para que
+           se sienta natural (izquierda es izquierda, derecha es derecha).
+        */
+        canvas { transform: scaleX(-1); display: block; width: 100%; height: 100%; } 
+
+        .controls { margin-top: 20px; }
+        
+        button {
+            padding: 15px 60px;
+            font-size: 22px;
+            cursor: pointer;
+            background-color: #28a745;
+            color: white;
+            border: none;
+            border-radius: 50px;
+            transition: transform 0.1s, box-shadow 0.2s;
+            font-weight: bold;
+            box-shadow: 0 5px 15px rgba(40, 167, 69, 0.4);
+        }
+        
+        button:hover { background-color: #218838; transform: scale(1.05); }
+        button:active { transform: translateY(4px); }
+        button:disabled { background-color: #ccc; cursor: not-allowed; box-shadow: none; }
+
+        #prediction-live { 
+            font-size: 1.6rem; 
+            font-weight: bold; 
+            color: #fff; 
+            margin: 15px 0; 
+            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+        }
+
+        /* Panel Derecho (Estadísticas) */
+        .stats-panel {
+            flex: 1;
+            min-width: 280px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .score-card {
+            text-align: center;
+            border-top: 5px solid #ffc107;
+        }
+
+        .score-display {
+            display: flex;
+            justify-content: space-around;
+            font-size: 2.2rem;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        
+        .score-item span { display: block; font-size: 1rem; color: #555; font-weight: normal; }
+
+        /* Mensaje Dinámico */
+        #dynamic-message {
+            min-height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 1.1rem;
+            padding: 15px;
+            border-radius: 10px;
+            background-color: rgba(255,255,255, 0.95);
+            border-left: 5px solid #6c757d;
+            color: #333;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+
+        /* Historial */
+        .history-container {
+            flex: 1;
+            max-height: 350px;
+            overflow-y: auto; /* Permite scroll si hay muchas jugadas */
+        }
+
+        .history-list { list-style: none; padding: 0; margin: 0; }
+        
+        .history-item {
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.95rem;
+        }
+        
+        /* Resalta la jugada más reciente */
+        .history-item:first-child { background-color: rgba(40, 167, 69, 0.1); font-weight: bold; border-radius: 5px;}
+
+        .res-win { color: #28a745; font-weight: bold; }
+        .res-lose { color: #dc3545; font-weight: bold; }
+        .res-draw { color: #ffc107; font-weight: bold; }
+
+    </style>
+</head>
+<body>
+
+    <div class="area">
+        <ul class="circles">
+            <li></li><li></li><li></li><li></li><li></li><li></li><li></li><li></li><li></li><li></li>
+        </ul>
+    </div>
+
+    <div class="main-header">
+        <h1>🤖 Piedra, Papel o Tijera IA</h1>
+    </div>
+
+    <div class="main-container">
+        
+        <div class="info-panel panel">
+            <span class="label">Proyecto Final Big Data</span>
+            <h2>Ramirez Cardenas Luis Armando</h2>
+            <h3>Grupo 961</h3>
+            <hr style="margin: 20px 0; border: 0; border-top: 1px solid #ddd;">
+            <p>Programa realizado con un modelo de IA hecho con Teachable Machine</p>
+        </div>
+
+        <div class="game-panel">
+            <div id="game-container">
+                <div id="webcam-container"></div>
+            </div>
+            <div id="prediction-live">Cargando modelo...</div>
+            <div class="controls">
+                <button id="btn-play" onclick="iniciarConteo()" disabled>JUGAR RONDA</button>
+            </div>
+        </div>
+
+        <div class="stats-panel">
+            
+            <div class="score-card panel">
+                <h3>Marcador Global</h3>
+                <div class="score-display">
+                    <div class="score-item">
+                        <div id="score-player" style="color: #28a745;">0</div>
+                        <span>Jugador</span>
+                    </div>
+                    <div class="score-item" style="color:#aaa;">:</div>
+                    <div class="score-item">
+                        <div id="score-cpu" style="color: #dc3545;">0</div>
+                        <span>CPU</span>
+                    </div>
+                </div>
+            </div>
+
+            <div id="dynamic-message">
+                👋 ¡Bienvenido! Presiona JUGAR para desafiar a la IA.
+            </div>
+
+            <div class="history-container panel">
+                <h4 style="margin-top:0; color:#555;">Historial de Jugadas</h4>
+                <ul id="history-list" class="history-list">
+                    </ul>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        /* DOCUMENTACIÓN: RUTA DEL MODELO 
+           Esta constante busca la carpeta 'My_model'. Es crucial que la carpeta
+           se llame exactamente igual, respetando mayúsculas.
+        */
+        const URL = "./My_model/"; 
+
+        let model, webcam, maxPredictions;
+        let isPlaying = false; // Controla si estamos en medio de un conteo
+        
+        // Estado del juego (Puntuación)
+        let scores = { player: 0, cpu: 0 };
+        
+        // Filtro de clases: Solo aceptamos estas opciones del modelo
+        const CLASES_VALIDAS = ["Piedra", "Papel", "Tijera"]; 
+
+        // DOCUMENTACIÓN: Banco de mensajes aleatorios según el resultado
+        const MENSAJES = {
+            ganar: [
+                "¡Bien hecho! Esa es la estrategia. 🎉", 
+                "¡Excelente jugada, Luis! Sigue así.", 
+                "¡La IA no puede contigo!",
+                "¡Victoria magistral! Eres un crack.",
+                "¡Punto para la humanidad!"
+            ],
+            empatar: [
+                "¡Mentes brillantes piensan igual!", 
+                "¡Empate! No te rindas, inténtalo de nuevo.",
+                "¡Estuvo cerca! Vamos por el desempate.",
+                "Lectura de mente... ¡Es un empate!"
+            ],
+            perder: [
+                "¡Casi! Vuélvelo a intentar.", 
+                "No te rindas, ¡sí se puede!", 
+                "La IA tuvo suerte esta vez. ¡Revancha!",
+                "¡Vamos! La próxima es tuya."
+            ]
+        };
+
+        /* FUNCIÓN INIT: Carga el modelo y enciende la cámara.
+        */
+        async function init() {
+            const modelURL = URL + "model.json";
+            const metadataURL = URL + "metadata.json";
+
+            try {
+                // Carga asíncrona del modelo de Teachable Machine
+                model = await tmImage.load(modelURL, metadataURL);
+                maxPredictions = model.getTotalClasses();
+
+                // Configura la webcam: 450x450 px, modo espejo (flip = true)
+                const flip = true; 
+                webcam = new tmImage.Webcam(450, 450, flip); 
+                await webcam.setup(); 
+                await webcam.play();
+                
+                // Adjunta el video al HTML
+                document.getElementById("webcam-container").appendChild(webcam.canvas);
+                document.getElementById("prediction-live").innerText = "✅ IA Lista";
+                document.getElementById("btn-play").disabled = false;
+                
+                // Inicia el bucle de renderizado
+                window.requestAnimationFrame(loop);
+
+            } catch (error) {
+                document.getElementById("prediction-live").innerText = "Error de carga";
+                alert("Error: No encuentro la carpeta 'My_model'.");
+            }
+        }
+
+        /* FUNCIÓN LOOP: Mantiene la cámara actualizada frame a frame.
+        */
+        async function loop() {
+            webcam.update(); 
+            // Si no estamos jugando una ronda, mostramos qué ve la IA en tiempo real
+            if (!isPlaying) {
+                await predictLive();
+            }
+            window.requestAnimationFrame(loop);
+        }
+
+        /* FUNCIÓN PREDICT LIVE: Muestra la predicción en tiempo real.
+           Solo muestra texto si la probabilidad es mayor al 80%
+        */
+        async function predictLive() {
+            const prediction = await model.predict(webcam.canvas);
+            let bestPrediction = prediction.reduce((prev, current) => 
+                (prev.probability > current.probability) ? prev : current
+            );
+
+            if (bestPrediction.probability > 0.8) {
+                document.getElementById("prediction-live").innerText = "Veo: " + bestPrediction.className;
+            } else {
+                document.getElementById("prediction-live").innerText = "...";
+            }
+        }
+
+        /* FUNCIÓN INICIAR CONTEO: Maneja la cuenta regresiva de 3 segundos.
+        */
+        function iniciarConteo() {
+            isPlaying = true;
+            document.getElementById("btn-play").disabled = true;
+            document.getElementById("dynamic-message").innerText = "Preparando...";
+            document.getElementById("dynamic-message").style.borderLeftColor = "#6c757d";
+            
+            let tiempo = 3;
+            
+            let timerInterval = setInterval(() => {
+                document.getElementById("prediction-live").innerText = "Capturando en " + tiempo;
+                tiempo--;
+                
+                if (tiempo < 0) {
+                    clearInterval(timerInterval);
+                    finalizarRonda();
+                }
+            }, 1000);
+        }
+
+        /* FUNCIÓN FINALIZAR RONDA: Toma la decisión final.
+           1. Obtiene la imagen actual.
+           2. Verifica si es Piedra, Papel o Tijera.
+           3. Genera la jugada de la CPU.
+           4. Determina el ganador.
+        */
+        async function finalizarRonda() {
+            const prediction = await model.predict(webcam.canvas);
+            
+            let tuJugada = "";
+            let probabilidad = 0;
+
+            // Buscar la clase con mayor probabilidad
+            for (let i = 0; i < maxPredictions; i++) {
+                if (prediction[i].probability > probabilidad) {
+                    probabilidad = prediction[i].probability;
+                    tuJugada = prediction[i].className;
+                }
+            }
+
+            // Validación estricta: Si detecta 'Fondo' o 'Nada', da error.
+            if (!CLASES_VALIDAS.map(c => c.toUpperCase()).includes(tuJugada.toUpperCase())) {
+                document.getElementById("prediction-live").innerText = "❌ No detectado";
+                document.getElementById("dynamic-message").innerText = "Error: No vi tu mano claramente. Intenta de nuevo.";
+                isPlaying = false;
+                document.getElementById("btn-play").disabled = false;
+                return;
+            }
+
+            // Turno CPU aleatorio
+            const cpuJugada = CLASES_VALIDAS[Math.floor(Math.random() * CLASES_VALIDAS.length)];
+            
+            determinarGanador(tuJugada, cpuJugada);
+            
+            isPlaying = false;
+            document.getElementById("btn-play").disabled = false;
+        }
+
+        /* DOCUMENTACIÓN: LÓGICA DEL GANADOR E INCLUSIÓN DEL EMPATE
+           Aquí comparamos las cadenas de texto para saber quién gana.
+           Se incluye explícitamente el caso de EMPATE.
+        */
+        function determinarGanador(jugador, cpu) {
+            let resultado = "";
+            let tipoMensaje = ""; 
+            let icono = "";
+
+            let j = jugador.toUpperCase();
+            let c = cpu.toUpperCase();
+
+            // --- CASO EMPATE ---
+            if (j === c) {
+                resultado = "EMPATE";
+                tipoMensaje = "empatar";
+                icono = "🤝";
+            } 
+            // --- CASOS DE VICTORIA ---
+            else if (
+                (j === "PIEDRA" && c === "TIJERA") ||
+                (j === "PAPEL" && c === "PIEDRA") ||
+                (j === "TIJERA" && c === "PAPEL")
+            ) {
+                resultado = "GANASTE";
+                tipoMensaje = "ganar";
+                scores.player++;
+                icono = "🏆";
+            } 
+            // --- CASOS DE DERROTA ---
+            else {
+                resultado = "PERDISTE";
+                tipoMensaje = "perder";
+                scores.cpu++;
+                icono = "🤖";
+            }
+
+            actualizarUI(jugador, cpu, resultado, tipoMensaje, icono);
+        }
+
+        /* ACTUALIZAR UI: Modifica el HTML para mostrar los nuevos datos.
+        */
+        function actualizarUI(jugador, cpu, resultado, tipoMensaje, icono) {
+            // 1. Actualizar números del Marcador
+            document.getElementById("score-player").innerText = scores.player;
+            document.getElementById("score-cpu").innerText = scores.cpu;
+
+            // 2. Seleccionar Mensaje Motivacional Aleatorio del banco
+            const lista = MENSAJES[tipoMensaje];
+            const mensaje = lista[Math.floor(Math.random() * lista.length)];
+            
+            const msgBox = document.getElementById("dynamic-message");
+            msgBox.innerText = mensaje;
+            
+            // 3. Cambiar colores según el resultado
+            if(tipoMensaje === "ganar") msgBox.style.borderLeftColor = "#28a745";
+            else if(tipoMensaje === "perder") msgBox.style.borderLeftColor = "#dc3545";
+            else msgBox.style.borderLeftColor = "#ffc107"; // Color amarillo para empate
+
+            document.getElementById("prediction-live").innerText = resultado;
+
+            // 4. Agregar al Historial (Lista lateral)
+            const listaHistorial = document.getElementById("history-list");
+            const item = document.createElement("li");
+            item.className = "history-item";
+            
+            let claseRes = "";
+            if(resultado === "GANASTE") claseRes = "res-win";
+            else if(resultado === "PERDISTE") claseRes = "res-lose";
+            else claseRes = "res-draw";
+
+            item.innerHTML = `
+                <div>${icono} <b>Tú:</b> ${jugador} <br><small>vs CPU: ${cpu}</small></div>
+                <div class="${claseRes}">${resultado}</div>
+            `;
+
+            // Insertar al principio para que lo más nuevo salga arriba
+            listaHistorial.insertBefore(item, listaHistorial.firstChild);
+        }
+
+        // Arrancar la aplicación
+        init();
+
+    </script>
+</body>
+</html>
